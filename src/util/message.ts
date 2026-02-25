@@ -103,7 +103,7 @@ export function normalizeMessagesForAPI(
   messages: Message[],
 ): (UserMessage | AssistantMessage)[] {
   const result: (UserMessage | AssistantMessage)[] = []
-  messages.forEach(message => {
+  messages.forEach((message, idx) => {
     switch (message.type) {
       case 'assistant': {
         // 跳过内容为空的 assistant 消息
@@ -146,6 +146,45 @@ export function normalizeMessagesForAPI(
               return true // 其他类型的内容块默认保留
           }
         })
+
+        // 检查 tool_use 是否有对应的 tool_result
+        // 如果后续消息没有匹配的 tool_result，补充中断结果
+        const toolUseIds = filteredContent
+          .filter(b => b.type === 'tool_use')
+          .map(b => (b as Anthropic.ToolUseBlock).id)
+
+        if (toolUseIds.length > 0) {
+          // 收集后续 user 消息中已有的 tool_result ids
+          const existingResultIds = new Set<string>()
+          for (let j = idx + 1; j < messages.length; j++) {
+            const m = messages[j]
+            if (m.type !== 'user') break
+            const content = m.message.content
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (typeof block === 'object' && 'tool_use_id' in block) {
+                  existingResultIds.add((block as any).tool_use_id)
+                }
+              }
+            }
+          }
+          // 对缺失的 tool_result，在下一条 user 消息中补充
+          const missingIds = toolUseIds.filter(id => !existingResultIds.has(id))
+          if (missingIds.length > 0) {
+            // 先 push 当前 assistant 消息
+            result.push({
+              ...message,
+              message: { ...message.message, content: filteredContent },
+            })
+            // 插入补充的 tool_result user 消息
+            const patchContent: Anthropic.ContentBlockParam[] = missingIds.map(id =>
+              createToolResultStopMessage(id),
+            )
+            patchContent.push({ type: 'text', text: CANCEL_MESSAGE })
+            result.push(createUserMessage(patchContent))
+            return
+          }
+        }
 
         result.push({
           ...message,

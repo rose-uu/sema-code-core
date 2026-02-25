@@ -389,6 +389,13 @@ function buildFinalMessages(
       message.tool_calls.forEach((toolCall: any) => {
         if (toolResults[toolCall.id]) {
           finalMessages.push(toolResults[toolCall.id])
+        } else {
+          // 兜底：为缺失的 tool_result 补充合成的 tool 消息，避免 API 400 错误
+          finalMessages.push({
+            role: 'tool',
+            content: 'Operation cancelled by user.',
+            tool_call_id: toolCall.id,
+          })
         }
       })
     }

@@ -6,6 +6,7 @@ import { queryLLM } from '../services/api/queryLLM'
 import {
   normalizeMessagesForAPI,
   createUserMessage,
+  createToolResultStopMessage,
 } from '../util/message'
 import { logDebug, logWarn, logInfo } from '../util/log'
 import { checkAutoCompact } from '../util/compact'
@@ -61,14 +62,24 @@ export async function* query(
   }
 
   // 获取助手响应
-  const assistantMessage = await queryLLM(
-    normalizeMessagesForAPI(messages),
-    systemPromptContent,
-    abortController.signal,
-    tools,
-    agentContext.model,
-    isSubagent // 根据上下文决定是否发送 chunk 事件
-  )
+  let assistantMessage
+  try {
+    assistantMessage = await queryLLM(
+      normalizeMessagesForAPI(messages),
+      systemPromptContent,
+      abortController.signal,
+      tools,
+      agentContext.model,
+      isSubagent // 根据上下文决定是否发送 chunk 事件
+    )
+  } catch (error) {
+    // API 错误时保存已累积的消息历史，避免丢失上下文
+    // 这样用户发送新消息时，AI 仍然知道之前在做什么
+    if (!isSubagent) {
+      agentState.setMessageHistory(messages)
+    }
+    throw error
+  }
 
   // 检查点1: AI响应完成后工具执行前
   if (abortController.signal.aborted) {
@@ -76,8 +87,17 @@ export async function* query(
     // 中断信息
     getEventBus().emit('session:interrupted', { agentId, content: INTERRUPT_MESSAGE })
 
-    // 同步消息历史并更新状态（添加中断消息到历史）
-    const interruptMessage = createUserMessage([{ type: 'text', text: INTERRUPT_MESSAGE }])
+    // 为未执行的 tool_use 生成 tool_result（避免恢复时 API 报错）
+    const pendingToolUses = assistantMessage.message.content.filter(
+      _ => _.type === 'tool_use',
+    ) as Anthropic.ToolUseBlock[]
+
+    const interruptContent: Anthropic.ContentBlockParam[] = pendingToolUses.map(tu =>
+      createToolResultStopMessage(tu.id),
+    )
+    interruptContent.push({ type: 'text', text: INTERRUPT_MESSAGE })
+
+    const interruptMessage = createUserMessage(interruptContent)
     const updatedMessagesForInterrupt = [...messages, assistantMessage, interruptMessage]
     agentState.finalizeMessages(updatedMessagesForInterrupt)
 
@@ -172,6 +192,26 @@ export async function* query(
 
     // 中断信息
     getEventBus().emit('session:interrupted', { agentId, content: INTERRUPT_MESSAGE_FOR_TOOL_USE })
+
+    // 收集已有 tool_result 的 tool_use_id
+    const completedToolIds = new Set<string>()
+    for (const tr of toolResults) {
+      const content = tr.message.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (typeof block === 'object' && 'tool_use_id' in block) {
+            completedToolIds.add(block.tool_use_id as string)
+          }
+        }
+      }
+    }
+
+    // 为未完成的 tool_use 补充 tool_result
+    for (const tu of toolUseMessages) {
+      if (!completedToolIds.has(tu.id)) {
+        toolResults.push(createUserMessage([createToolResultStopMessage(tu.id)]))
+      }
+    }
 
     // 在最后一个工具结果消息中追加中断文本
     if (toolResults.length > 0) {
