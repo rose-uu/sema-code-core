@@ -7,6 +7,7 @@ import { getProjectConfigFilePath} from '../util/savePath';
 import { getCwd, setCwd, setOriginalCwd } from '../util/cwd';
 import { getCurrentLocalTimeString } from '../util/time';
 import { logWarn, logError, logInfo, setLogLevel } from '../util/log';
+import { getEngineStore } from '../core/EngineContext';
 
 /**
  * 配置管理器
@@ -61,6 +62,9 @@ export class ConfigManager {
    * 获取核心配置
    */
   getCoreConfig(): SemaCoreConfig | null {
+    // per-engine context 优先（多租户支持）
+    const store = getEngineStore();
+    if (store?.coreConfig) return { ...store.coreConfig } as SemaCoreConfig;
     return this.coreConfig ? { ...this.coreConfig } : null;
   }
 

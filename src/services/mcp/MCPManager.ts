@@ -7,6 +7,7 @@ import { MCPServerConfig, MCPScopeType, MCPServerInfo, MCPServerStatus } from '.
 import { logDebug, logError, logInfo, logWarn } from '../../util/log'
 import { getGlobalMCPFilePath } from '../../util/savePath'
 import { getOriginalCwd } from '../../util/cwd'
+import { getEngineStore } from '../../core/EngineContext'
 
 /**
  * MCP 配置文件格式
@@ -714,27 +715,41 @@ class MCPManager {
   }
 }
 
-// ===================== 全局 MCP 管理器 =====================
+// ===================== 全局 MCP 管理器（兼容层） =====================
 
 let mcpManagerInstance: MCPManager | null = null
 
 /**
- * 获取 MCP Manager 实例（单例模式）
+ * 创建一个绑定到指定工作目录的 MCPManager 实例。
+ * 用于 SemaEngine per-engine 隔离。
+ */
+export function createMCPManagerForDir(workingDir: string): MCPManager {
+  const globalConfigPath = getGlobalMCPFilePath()
+  const projectConfigPath = path.join(workingDir, '.sema', 'mcp.json')
+  return new MCPManager(globalConfigPath, projectConfigPath)
+}
+
+/**
+ * 获取当前上下文的 MCPManager。
+ * 若在 runWithEngine() 内则返回 per-engine 实例，否则返回全局单例。
  */
 export function getMCPManager(): MCPManager {
+  const store = getEngineStore()
+  if (store?.mcpManager) return store.mcpManager as MCPManager
+
+  // 全局单例（向后兼容）
   if (!mcpManagerInstance) {
     const globalConfigPath = getGlobalMCPFilePath()
     const originalCwd = getOriginalCwd()
     const projectConfigPath = path.join(originalCwd, '.sema', 'mcp.json')
-
     mcpManagerInstance = new MCPManager(globalConfigPath, projectConfigPath)
   }
   return mcpManagerInstance
 }
 
 /**
- * 初始化 MCP Manager
- * 需要在 getOriginalCwd 设置后调用
+ * 初始化全局 MCP Manager（向后兼容，单引擎用途）。
+ * 多引擎场景请直接调用 createMCPManagerForDir(workingDir).init()。
  */
 export async function initMCPManager(): Promise<void> {
   const manager = getMCPManager()

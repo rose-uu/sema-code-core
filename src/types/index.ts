@@ -1,4 +1,5 @@
 export interface SemaCoreConfig {
+  instanceId?: string;               // 引擎唯一标识（多租户隔离 key），不提供则自动生成
   workingDir?: string;               // 项目绝对路径
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
   stream?: boolean;                  // 流式输出ai响应，默认 是

@@ -1,6 +1,7 @@
 import { EventListener, EventBusInterface } from './types';
 import { logError } from '../util/log';
 import { logEvent } from '../util/logLLM';
+import { getEngineStore } from '../core/EngineContext';
 
 /**
  * 简化的事件发射器
@@ -81,12 +82,11 @@ export class EventBus implements EventBusInterface {
   private static instance: EventBus | null = null;
   private readonly emitter = new EventEmitter();
 
-  private constructor() {
-    // 简化构造函数，不需要复杂的配置逻辑
-  }
+  // 允许外部 new EventBus()，用于 per-engine 隔离
+  constructor() {}
 
   /**
-   * 获取 EventBus 实例（单例模式）
+   * 获取全局 EventBus 单例（向后兼容）
    */
   static getInstance(): EventBus {
     if (!EventBus.instance) {
@@ -141,6 +141,11 @@ export class EventBus implements EventBusInterface {
 }
 
 /**
- * 导出单例实例的便捷访问方法
+ * 获取当前上下文的 EventBus。
+ * 若在 runWithEngine() 内则返回 per-engine 实例，否则返回全局单例。
  */
-export const getEventBus = () => EventBus.getInstance();
+export function getEventBus(): EventBus {
+  const store = getEngineStore();
+  if (store?.eventBus) return store.eventBus as EventBus;
+  return EventBus.getInstance();
+}

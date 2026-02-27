@@ -10,6 +10,7 @@ import { logInfo } from '../util/log';
 import { saveHistory } from '../util/history';
 import { Message } from '../types/message';
 import { getConfManager } from './ConfManager';
+import { getEngineStore } from '../core/EngineContext';
 
 // 扩展 TodoItem，添加可选的 id 字段（用于智能更新）
 export interface TodoItemWithId extends TodoItem {
@@ -84,9 +85,8 @@ export class StateManager {
   private planModeInfoSent = false;
   public currentAbortController: AbortController | null = null;
 
-  private constructor() {
-    // 私有构造函数，确保单例模式
-  }
+  // 允许 new StateManager() 用于 per-engine 实例
+  constructor() {}
 
   /**
    * 获取StateManager实例（单例模式）
@@ -439,6 +439,11 @@ export class StateManager {
 }
 
 /**
- * 获取 StateManager 单例实例
+ * 获取当前上下文的 StateManager。
+ * 若在 runWithEngine() 内则返回 per-engine 实例，否则返回全局单例。
  */
-export const getStateManager = () => StateManager.getInstance();
+export function getStateManager(): StateManager {
+  const store = getEngineStore();
+  if (store?.stateManager) return store.stateManager as StateManager;
+  return StateManager.getInstance();
+}

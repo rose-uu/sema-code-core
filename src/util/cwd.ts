@@ -2,6 +2,7 @@ import { PersistentShell } from './shell'
 import { cwd } from 'process'
 import { logInfo } from './log'
 import { normalizeFilePath } from './file'
+import { getEngineStore } from '../core/EngineContext'
 
 /**
  * 设置当前工作目录（动态变化，会随着shell目录切换而更新）
@@ -84,5 +85,8 @@ export function setOriginalCwd(cwd: string): void {
  * @returns 原始工作目录路径
  */
 export function getOriginalCwd(): string {
+  // per-engine context 优先（多租户支持）
+  const store = getEngineStore();
+  if (store?.workingDir) return store.workingDir;
   return STATE.originalCwd
 }

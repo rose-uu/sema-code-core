@@ -18,28 +18,62 @@ import { Message } from '../types/message';
 import { query } from './Conversation';
 import type { AgentContext } from '../types/agent'
 import { initializeSkillRegistry, clearSkillRegistry } from '../services/skill/skillRegistry';
-import { getMCPManager } from '../services/mcp/MCPManager';
+import { getMCPManager, MCPManager } from '../services/mcp/MCPManager';
 import { initAgentsManager } from '../services/agents/agentsManager';
-import { getStateManager, MAIN_AGENT_ID } from '../manager/StateManager';
+import { getStateManager, StateManager, MAIN_AGENT_ID } from '../manager/StateManager';
 import { handleSystemCommand, tryHandleCustomCommand } from '../services/command/runCommand';
 import { loadCustomCommands } from '../services/plugins/customCommands';
+import { SemaCoreConfig } from '../types';
+import { runWithEngine, EngineStore } from './EngineContext';
+import { getCwd } from '../util/cwd';
 
 
 /**
  * Sema 引擎 - 处理核心业务逻辑
+ *
+ * 每个 SemaEngine 实例持有独立的 EventBus、StateManager、MCPManager，
+ * 通过 AsyncLocalStorage 确保所有内部调用自动使用 per-engine 实例。
  */
 export class SemaEngine {
-  // 公共事件接口
-  private eventBus = EventBus.getInstance();
-  emit = <T>(event: string, data: T) => this.eventBus.emit(event, data as Record<string, any>);
-  on = <T>(event: string, listener: (data: T) => void) => this.eventBus.on(event, listener);
-  once = <T>(event: string, listener: (data: T) => void) => this.eventBus.once(event, listener);
-  off = <T>(event: string, listener: (data: T) => void) => this.eventBus.off(event, listener);
+  private readonly instanceId: string;
+  private readonly initialConfig: SemaCoreConfig;
+  private readonly myEventBus: EventBus;
+  private readonly myStateManager: StateManager;
+  private readonly myMCPManager: MCPManager;
+
+  constructor(instanceId: string, config: SemaCoreConfig, mcpManager: MCPManager) {
+    this.instanceId = instanceId;
+    this.initialConfig = config;
+    this.myEventBus = new EventBus();
+    this.myStateManager = new StateManager();
+    this.myMCPManager = mcpManager;
+  }
+
+  private getEngineStore(): EngineStore {
+    return {
+      instanceId: this.instanceId,
+      workingDir: this.initialConfig.workingDir || getCwd(),
+      coreConfig: this.initialConfig,
+      eventBus: this.myEventBus,
+      stateManager: this.myStateManager,
+      mcpManager: this.myMCPManager,
+    };
+  }
+
+  // 公共事件接口 — 直接使用 per-engine EventBus，无需 engine context
+  emit = <T>(event: string, data: T) => this.myEventBus.emit(event, data as Record<string, any>);
+  on = <T>(event: string, listener: (data: T) => void) => (this.myEventBus.on(event, listener), this as unknown as SemaEngine);
+  once = <T>(event: string, listener: (data: T) => void) => (this.myEventBus.once(event, listener), this as unknown as SemaEngine);
+  off = <T>(event: string, listener: (data: T) => void) => (this.myEventBus.off(event, listener), this as unknown as SemaEngine);
 
   /**
-   * 创建会话
+   * 创建会话（在 per-engine context 内运行）
    */
   async createSession(sessionId?: string): Promise<void> {
+    return runWithEngine(this.getEngineStore(), () => this.createSessionInternal(sessionId));
+  }
+
+  private async createSessionInternal(sessionId?: string): Promise<void> {
     // 中止当前正在进行的请求（如果存在）
     this.abortCurrentRequest();
 
@@ -90,43 +124,45 @@ export class SemaEngine {
   }
 
   /**
-   * 处理用户输入
+   * 处理用户输入（在 per-engine context 内运行）
    */
   processUserInput(input: string, originalInput?: string): void {
-    const stateManager = getStateManager();
-    const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID);
-    mainAgentState.updateState('processing');
+    runWithEngine(this.getEngineStore(), () => {
+      const stateManager = getStateManager();
+      const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID);
+      mainAgentState.updateState('processing');
 
-    const trimmedInput = input.trim();
-    logInfo(`用户输入: ${trimmedInput}`);
+      const trimmedInput = input.trim();
+      logInfo(`用户输入: ${trimmedInput}`);
 
-    // 创建新的 AbortController 用于此次处理
-    stateManager.currentAbortController = new AbortController();
+      // 创建新的 AbortController 用于此次处理
+      stateManager.currentAbortController = new AbortController();
 
-    // 获取核心配置
-    const coreConfig = getConfManager().getCoreConfig();
+      // 获取核心配置
+      const coreConfig = getConfManager().getCoreConfig();
 
-    // 获取工具集
-    let tools: Tool[];
-    const builtinTools = getTools(coreConfig?.useTools);
-    const mcpTools = getMCPManager().getMCPTools();
-    tools = [...builtinTools, ...mcpTools];
-    // 若 Plan 模式，去掉 TodoWrite 工具
-    const agentMode = coreConfig?.agentMode || 'Agent';
-    if (agentMode === 'Plan') {
-      tools = tools.filter(tool => tool.name !== 'TodoWrite');
-    }
-    logInfo(`tools len: ${tools.length} (builtin: ${builtinTools.length}, mcp: ${mcpTools.length})`);
+      // 获取工具集
+      let tools: Tool[];
+      const builtinTools = getTools(coreConfig?.useTools);
+      const mcpTools = getMCPManager().getMCPTools();
+      tools = [...builtinTools, ...mcpTools];
+      // 若 Plan 模式，去掉 TodoWrite 工具
+      const agentMode = coreConfig?.agentMode || 'Agent';
+      if (agentMode === 'Plan') {
+        tools = tools.filter(tool => tool.name !== 'TodoWrite');
+      }
+      logInfo(`tools len: ${tools.length} (builtin: ${builtinTools.length}, mcp: ${mcpTools.length})`);
 
-    // 构建主代理上下文
-    const agentContext: AgentContext = {
-      agentId: MAIN_AGENT_ID,
-      abortController: stateManager.currentAbortController,
-      tools,
-      model: 'main',
-    }
+      // 构建主代理上下文
+      const agentContext: AgentContext = {
+        agentId: MAIN_AGENT_ID,
+        abortController: stateManager.currentAbortController,
+        tools,
+        model: 'main',
+      }
 
-    this.processQuery(trimmedInput, originalInput, agentContext, agentMode);
+      return this.processQuery(trimmedInput, originalInput, agentContext, agentMode);
+    }).catch(err => logInfo(`[${this.instanceId}] processUserInput 顶层错误: ${err}`));
   }
 
   /**
@@ -251,13 +287,13 @@ export class SemaEngine {
    * 不更新状态，用于内部调用
    */
   private abortCurrentRequest(): void {
-    const stateManager = getStateManager();
-    const abortController = stateManager.currentAbortController;
+    // 直接使用 per-engine StateManager，无需 engine context
+    const abortController = this.myStateManager.currentAbortController;
     if (abortController && !abortController.signal.aborted) {
       logInfo('通过 AbortController 发送中断信号');
       abortController.abort();
     }
-    stateManager.currentAbortController = null;
+    this.myStateManager.currentAbortController = null;
   }
 
   /**
@@ -265,7 +301,7 @@ export class SemaEngine {
    */
   interruptSession(): void {
     this.abortCurrentRequest();
-    const mainAgentState = getStateManager().forAgent(MAIN_AGENT_ID);
+    const mainAgentState = this.myStateManager.forAgent(MAIN_AGENT_ID);
     mainAgentState.updateState('idle');
   }
 
@@ -393,12 +429,11 @@ export class SemaEngine {
     // 1. 中止当前正在进行的请求（复用 abortCurrentRequest）
     this.abortCurrentRequest();
 
-    // 2. 清空所有状态数据
-    const stateManager = getStateManager();
-    stateManager.clearAllState();
+    // 2. 清空所有状态数据（直接使用 per-engine 实例）
+    this.myStateManager.clearAllState();
 
-    // 3. 移除所有事件监听器
-    this.eventBus.removeAllListeners();
+    // 3. 移除所有事件监听器（直接使用 per-engine 实例）
+    this.myEventBus.removeAllListeners();
 
     logInfo('SemaEngine 资源清理完成');
   }

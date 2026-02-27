@@ -5,7 +5,7 @@ import { SkillInfo } from '../types/skill';
 import { AgentInfo, AgentConfig } from '../types/agent';
 import { ToolPermissionResponse, AskQuestionResponseData, PlanExitResponseData } from '../events/types';
 import { fetchModels, testApiConnection } from '../services/api/apiUtil';
-import { getMCPManager, initMCPManager } from '../services/mcp/MCPManager';
+import { createMCPManagerForDir, MCPManager } from '../services/mcp/MCPManager';
 import { getSkillsInfo } from '../services/skill/skillRegistry';
 import { getAgentsInfo, addAgentConf } from '../services/agents/agentsManager';
 import { getCachedCustomCommands, reloadCustomCommands as reloadCustomCommandsImpl } from '../services/plugins/customCommands';
@@ -15,25 +15,42 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { getToolInfos } from '../tools/base/tools';
 import { logInfo } from '../util/log';
+import { getCwd } from '../util/cwd';
 
 /**
  * Sema 核心 API 类
  * 提供简洁的公共接口，内部委托给 SemaEngine 处理业务逻辑
+ *
+ * 多租户改造：每个 SemaCore 实例持有独立的 instanceId 和 MCPManager，
+ * SemaEngine 通过 AsyncLocalStorage 隔离 EventBus / StateManager / config。
  */
 export class SemaCore {
   private readonly engine: SemaEngine;
+  private readonly instanceMCPManager: MCPManager;
   private configPromise: Promise<void> | null = null;
 
   constructor(config?: SemaCoreConfig) {
-    this.configPromise = getConfManager().setCoreConfig(config || {});
-    this.engine = new SemaEngine();
+    const resolvedConfig = config || {};
 
+    // instanceId：优先使用 config 中提供的，否则生成唯一 ID
+    const instanceId = resolvedConfig.instanceId ?? `engine-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    // 为此引擎创建独立的 MCPManager（projectConfigPath 绑定到 workingDir）
+    const workingDir = resolvedConfig.workingDir || getCwd();
+    this.instanceMCPManager = createMCPManagerForDir(workingDir);
+
+    // 创建 per-engine SemaEngine（携带 MCPManager）
+    this.engine = new SemaEngine(instanceId, resolvedConfig, this.instanceMCPManager);
+
+    // 向全局 ConfManager 注册项目配置（主要为了 project history 等持久化）
+    this.configPromise = getConfManager().setCoreConfig(resolvedConfig);
+
+    // 初始化 per-engine MCPManager（读取 workingDir/.sema/mcp.json + 全局配置）
     this.configPromise = this.configPromise.then(async () => {
-      await Promise.all([
-        initMCPManager()
-      ]);
+      await this.instanceMCPManager.init();
     });
-    logInfo(`初始化SemaCore: ${JSON.stringify(config, null, 2)}`)
+
+    logInfo(`初始化SemaCore [${instanceId}]: ${JSON.stringify(resolvedConfig, null, 2)}`);
   }
 
   // ==================== 事件接口 ====================
@@ -87,12 +104,17 @@ export class SemaCore {
   fetchAvailableModels = (params: FetchModelsParams): Promise<FetchModelsResult> => fetchModels(params);
   testApiConnection = (params: ApiTestParams): Promise<ApiTestResult> => testApiConnection(params);
 
-  // ==================== MCP 管理 ====================
-  addOrUpdateMCPServer = (config: MCPServerConfig, scope: MCPScopeType): Promise<MCPServerInfo> => getMCPManager().addOrUpdateServer(config, scope);
-  removeMCPServer = (name: string, scope: MCPScopeType): Promise<boolean> => getMCPManager().removeServer(name, scope);
-  getMCPServerConfigs = (): Map<MCPScopeType, MCPServerInfo[]>  => getMCPManager().getMCPServerConfigs();
-  connectMCPServer = (name: string): Promise<MCPServerInfo> => getMCPManager().connectMCPServer(name);
-  updateMCPUseTools = (name: string, toolNames: string[] | null): boolean => getMCPManager().updateMCPUseTools(name, toolNames);
+  // ==================== MCP 管理（使用 per-engine MCPManager）====================
+  addOrUpdateMCPServer = (config: MCPServerConfig, scope: MCPScopeType): Promise<MCPServerInfo> =>
+    this.instanceMCPManager.addOrUpdateServer(config, scope);
+  removeMCPServer = (name: string, scope: MCPScopeType): Promise<boolean> =>
+    this.instanceMCPManager.removeServer(name, scope);
+  getMCPServerConfigs = (): Map<MCPScopeType, MCPServerInfo[]> =>
+    this.instanceMCPManager.getMCPServerConfigs();
+  connectMCPServer = (name: string): Promise<MCPServerInfo> =>
+    this.instanceMCPManager.connectMCPServer(name);
+  updateMCPUseTools = (name: string, toolNames: string[] | null): boolean =>
+    this.instanceMCPManager.updateMCPUseTools(name, toolNames);
 
   // ==================== Skill 管理 ====================
   getSkillsInfo = (): SkillInfo[] => getSkillsInfo();
@@ -109,7 +131,7 @@ export class SemaCore {
   // ==================== 资源管理 ====================
   // 清理所有资源并停止 Sema 核心服务
   dispose = async () => {
-    await getMCPManager().dispose();
+    await this.instanceMCPManager.dispose();
     this.engine.dispose();
   };
 
