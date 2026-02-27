@@ -10,6 +10,8 @@ docker --version
 
 ## 安装 swebench
 
+在本项目外其他目录拉取安装最新swebench并安装到虚拟环境swebench中
+
 ```Bash
 # 创建虚拟环境
 python -m venv ~/.venvs/swebench

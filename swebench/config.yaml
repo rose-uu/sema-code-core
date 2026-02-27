@@ -3,7 +3,7 @@ DATASET_NAME: "princeton-nlp/SWE-bench_Verified"
 DATASET_SPLIT: "test"
 
 # HuggingFace 数据集本地缓存目录，None 表示使用默认路径 (~/.cache/huggingface)
-DATASET_CACHE_DIR: 'swebench/data'
+DATASET_CACHE_DIR: '/Users/zhoujie195/github/sema-code-core/swebench/data'
 
 # 要测试的 instance，两种格式二选一：
 #
@@ -20,8 +20,14 @@ DATASET_CACHE_DIR: 'swebench/data'
 TARGET_INSTANCE_IDS:
   - "django__django-11749"
 
+# 本地代码库缓存目录，所有 repo 将 clone 至此目录下
+REPOS_DIR: "/Users/zhoujie195/github/sema-code-core/swebench/repos"
+
 # predictions 输出路径
 PREDICTIONS_PATH: "predictions.json"
 
+# 运行标识符，用于区分不同评估批次
+RUN_ID: "sema_local"
+
 # 评估结果目录
-RUN_ID: "my_test_run"
+REPORT_DIR: "/Users/zhoujie195/github/sema-code-core/swebench/report"

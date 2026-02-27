@@ -19,6 +19,20 @@ config.local.*
 .sema.conf
 .sema/
 
+# swebench - 只允许特定文件类型
+swebench/**
+!swebench/*/
+swebench/__pycache__/
+swebench/data/
+swebench/repos/
+swebench/report/
+!swebench/**/*.sh
+!swebench/**/*.js
+!swebench/**/*.py
+!swebench/**/*.yaml
+!swebench/**/*.yml
+!swebench/**/*.md
+
 # IDE
 .idea/
 .vscode-test
