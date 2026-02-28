@@ -21,6 +21,8 @@ import { AsyncLocalStorage } from 'async_hooks';
 export interface EngineStore {
   instanceId: string;
   workingDir: string;
+  /** Agent 人设/配置目录（CLAUDE.md、.sema/）。未提供时等于 workingDir。 */
+  agentDataDir: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   coreConfig: any;       // SemaCoreConfig
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

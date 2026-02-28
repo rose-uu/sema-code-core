@@ -50,9 +50,11 @@ export class SemaEngine {
   }
 
   private getEngineStore(): EngineStore {
+    const workingDir = this.initialConfig.workingDir || getCwd();
     return {
       instanceId: this.instanceId,
-      workingDir: this.initialConfig.workingDir || getCwd(),
+      workingDir,
+      agentDataDir: this.initialConfig.agentDataDir || workingDir,
       coreConfig: this.initialConfig,
       eventBus: this.myEventBus,
       stateManager: this.myStateManager,
@@ -93,7 +95,7 @@ export class SemaEngine {
     logInfo(`会话CoreConfig: ${JSON.stringify(coreConfig, null, 2)}`)
 
     // 初始化 Skill 注册表 & 加载自定义命令（不阻塞会话创建）
-    this.initializePlugins(coreConfig?.workingDir);
+    this.initializePlugins(coreConfig?.agentDataDir || coreConfig?.workingDir);
 
     // 将加载的消息历史和 todos 设置到主代理状态
     const mainAgentState = stateManager.forAgent(MAIN_AGENT_ID);

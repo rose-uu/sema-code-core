@@ -84,9 +84,42 @@ export function setOriginalCwd(cwd: string): void {
  *
  * @returns 原始工作目录路径
  */
+/**
+ * per-instance workingDir 覆盖（供 setWorkingDir 动态切换使用）。
+ * 以 instanceId 为 key，跨越 AsyncLocalStorage 边界持久存在。
+ */
+const workingDirOverrides = new Map<string, string>();
+
+export function setWorkingDirOverride(instanceId: string, dir: string): void {
+  workingDirOverrides.set(instanceId, dir);
+}
+
+export function clearWorkingDirOverride(instanceId: string): void {
+  workingDirOverrides.delete(instanceId);
+}
+
 export function getOriginalCwd(): string {
   // per-engine context 优先（多租户支持）
   const store = getEngineStore();
-  if (store?.workingDir) return store.workingDir;
+  if (store) {
+    // 动态 override（WorkspaceTool 切换后生效）
+    const override = workingDirOverrides.get(store.instanceId);
+    if (override) return override;
+    if (store.workingDir) return store.workingDir;
+  }
   return STATE.originalCwd
+}
+
+/**
+ * 获取 Agent 人设/配置目录（存放 CLAUDE.md、.sema/ 等）。
+ * 当未设置 agentDataDir 时，回退到 getOriginalCwd()（workingDir）。
+ *
+ * 使用场景：
+ * - 读取 CLAUDE.md（persona）
+ * - 读取 .sema/mcp.json、.sema/skills/ 等配置
+ */
+export function getAgentDataDir(): string {
+  const store = getEngineStore();
+  if (store?.agentDataDir) return store.agentDataDir;
+  return getOriginalCwd();
 }

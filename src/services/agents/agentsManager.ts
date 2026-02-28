@@ -11,7 +11,7 @@ import * as path from 'path'
 import { AgentConfig, AgentInfo } from '../../types/agent'
 import { logDebug, logError, logInfo, logWarn } from '../../util/log'
 import { getSemaRootDir } from '../../util/savePath'
-import { getOriginalCwd } from '../../util/cwd'
+import { getAgentDataDir } from '../../util/cwd'
 import { extractFrontmatter, parseFrontmatter } from '../../util/frontmatter'
 import { defaultBuiltInAgentsConfs } from './defaultBuiltInAgentsConfs'
 
@@ -356,7 +356,7 @@ let agentsManagerInstance: AgentsManager | null = null
 export function getAgentsManager(): AgentsManager {
   if (!agentsManagerInstance) {
     const userAgentsDir = path.join(getSemaRootDir(), 'agents')
-    const projectAgentsDir = path.join(getOriginalCwd(), '.sema', 'agents')
+    const projectAgentsDir = path.join(getAgentDataDir(), '.sema', 'agents')
 
     agentsManagerInstance = new AgentsManager(userAgentsDir, projectAgentsDir)
   }

@@ -15,7 +15,7 @@ import { getConfManager } from '../manager/ConfManager';
 import { getModelManager } from '../manager/ModelManager';
 import { getToolInfos } from '../tools/base/tools';
 import { logInfo } from '../util/log';
-import { getCwd } from '../util/cwd';
+import { getCwd, setWorkingDirOverride, clearWorkingDirOverride } from '../util/cwd';
 
 /**
  * Sema 核心 API 类
@@ -27,6 +27,7 @@ import { getCwd } from '../util/cwd';
 export class SemaCore {
   private readonly engine: SemaEngine;
   private readonly instanceMCPManager: MCPManager;
+  private readonly instanceId: string;
   private configPromise: Promise<void> | null = null;
 
   constructor(config?: SemaCoreConfig) {
@@ -34,10 +35,12 @@ export class SemaCore {
 
     // instanceId：优先使用 config 中提供的，否则生成唯一 ID
     const instanceId = resolvedConfig.instanceId ?? `engine-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    this.instanceId = instanceId;
 
-    // 为此引擎创建独立的 MCPManager（projectConfigPath 绑定到 workingDir）
+    // 为此引擎创建独立的 MCPManager（projectConfigPath 绑定到 agentDataDir）
     const workingDir = resolvedConfig.workingDir || getCwd();
-    this.instanceMCPManager = createMCPManagerForDir(workingDir);
+    const agentDataDir = resolvedConfig.agentDataDir || workingDir;
+    this.instanceMCPManager = createMCPManagerForDir(agentDataDir);
 
     // 创建 per-engine SemaEngine（携带 MCPManager）
     this.engine = new SemaEngine(instanceId, resolvedConfig, this.instanceMCPManager);
@@ -51,6 +54,22 @@ export class SemaCore {
     });
 
     logInfo(`初始化SemaCore [${instanceId}]: ${JSON.stringify(resolvedConfig, null, 2)}`);
+  }
+
+  // ==================== 工作目录 ====================
+
+  /**
+   * 动态切换工作目录（WorkspaceTool 调用后生效）。
+   * 通过 workingDirOverrides Map 跨越 AsyncLocalStorage 边界持久化，
+   * 下次 getOriginalCwd() 即返回新路径。
+   */
+  setWorkingDir(newDir: string): void {
+    setWorkingDirOverride(this.instanceId, newDir);
+  }
+
+  /** 清除工作目录覆盖，回到初始 workingDir（实例销毁时调用） */
+  clearWorkingDir(): void {
+    clearWorkingDirOverride(this.instanceId);
   }
 
   // ==================== 事件接口 ====================

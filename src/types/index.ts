@@ -1,6 +1,7 @@
 export interface SemaCoreConfig {
   instanceId?: string;               // 引擎唯一标识（多租户隔离 key），不提供则自动生成
-  workingDir?: string;               // 项目绝对路径
+  workingDir?: string;               // 工具操作根目录（文件读写、Bash 执行等）
+  agentDataDir?: string;             // Agent 人设/配置目录（CLAUDE.md、.sema/），不提供则等于 workingDir
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'none'; // 默认 'info'
   stream?: boolean;                  // 流式输出ai响应，默认 是
   thinking?: boolean;                // 流式输出ai响应，默认 否

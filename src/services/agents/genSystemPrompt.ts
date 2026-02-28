@@ -5,7 +5,7 @@ import { getEnv } from '../../util/env'
 import { memoize } from 'lodash-es'
 import { getConfManager } from '../../manager/ConfManager'
 import { getSkillsSummary } from '../skill/skillRegistry'
-import { getOriginalCwd } from '../../util/cwd'
+import { getAgentDataDir } from '../../util/cwd'
 import * as path from 'path';
 import { 
   Agent_Summary_Prompt,
@@ -70,7 +70,7 @@ ${Empty_Todo_Reminder_Prompt}
 
 export function generatePlanReminders(taskDescription?: string): Anthropic.ContentBlockParam[] {
   const additionalReminders: Anthropic.ContentBlockParam[] = []
-  const currentDir = getOriginalCwd()
+  const currentDir = getAgentDataDir()
   const plansDir = path.join(currentDir, '.sema/', 'plans/')
   
   // 生成计划文件名的提示

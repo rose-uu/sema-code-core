@@ -8,7 +8,7 @@ import { promisify } from 'util';
 import { CustomCommand, LoadCustomCommandsResult, CustomCommandFrontmatter } from '../../types/command';
 import { parseMarkdownWithFrontmatter } from '../../util/frontmatter';
 import { getSemaRootDir } from '../../util/savePath';
-import { getOriginalCwd } from '../../util/cwd';
+import { getAgentDataDir } from '../../util/cwd';
 import { normalizeFilePath } from '../../util/file';
 import { logDebug, logWarn } from '../../util/log';
 
@@ -29,11 +29,11 @@ export function getCustomCommandDirectories(): {
   projectCommands: string;
   userCommands: string;
 } {
-  const projectDir = getOriginalCwd();
+  const agentDataDir = getAgentDataDir();
   const userDir = getSemaRootDir();
 
   return {
-    projectCommands: path.join(projectDir, '.sema', 'commands'),
+    projectCommands: path.join(agentDataDir, '.sema', 'commands'),
     userCommands: path.join(userDir, 'commands'),
   };
 }

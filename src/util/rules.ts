@@ -1,32 +1,66 @@
 import Anthropic from '@anthropic-ai/sdk'
 import * as fs from 'fs'
 import * as path from 'path'
-import { getOriginalCwd } from './cwd'
+import { getOriginalCwd, getAgentDataDir } from './cwd'
 import { PROJECT_FILE } from '../constants/product'
 import { getGlobalAgentMdPath } from '../util/savePath'
 import { getConfManager } from '../manager/ConfManager'
 
 /**
- * 读取当前目录下的配置文件内容
- * 优先读取 AGENT.md，如果不存在则读取 CLAUDE.md
+ * 读取 agentDataDir 下的人设文件（SOUL.md 优先，次之 AGENT.md / CLAUDE.md）
+ * 这是 Agent 的"灵魂文件"，存储人设、长期记忆指令等。
+ * 文件不存在时返回空内容（不强制加载）。
  */
-function readConfigFile(): string {
+function readPersonaFile(): { content: string; filePath: string } {
   try {
-    const currentDir = getOriginalCwd()
-    const agentPath = path.join(currentDir, PROJECT_FILE)
-    const claudePath = path.join(currentDir, 'CLAUDE.md')
+    const dir = getAgentDataDir()
+    const candidates = [
+      path.join(dir, 'SOUL.md'),
+      path.join(dir, PROJECT_FILE),
+      path.join(dir, 'CLAUDE.md'),
+    ]
+
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        return { content: fs.readFileSync(p, 'utf8'), filePath: p }
+      }
+    }
+
+    return { content: '', filePath: '' }
+  } catch (error) {
+    return { content: '', filePath: '' }
+  }
+}
+
+/**
+ * 读取 workingDir 下的项目上下文文件（AGENT.md 优先，次之 CLAUDE.md）
+ * 仅当 workingDir ≠ agentDataDir 时才有意义（双目录模式）。
+ */
+function readProjectConfigFile(): { content: string; filePath: string } {
+  try {
+    const workingDir = getOriginalCwd()
+    const agentDataDir = getAgentDataDir()
+
+    // 若 workingDir == agentDataDir，无需重复加载（避免重复注入）
+    if (workingDir === agentDataDir) {
+      return { content: '', filePath: '' }
+    }
+
+    const agentPath = path.join(workingDir, PROJECT_FILE)
+    const claudePath = path.join(workingDir, 'CLAUDE.md')
 
     if (fs.existsSync(agentPath)) {
-      return fs.readFileSync(agentPath, 'utf8')
+      return { content: fs.readFileSync(agentPath, 'utf8'), filePath: agentPath }
     }
 
     if (fs.existsSync(claudePath)) {
-      return fs.readFileSync(claudePath, 'utf8')
+      return { content: fs.readFileSync(claudePath, 'utf8'), filePath: claudePath }
     }
 
-    return ''
+    // 文件不存在 → 不注入项目上下文
+    return { content: '', filePath: '' }
   } catch (error) {
-    return ''
+    return { content: '', filePath: '' }
   }
 }
 
@@ -58,24 +92,42 @@ function readGlobalAgentFile(): string {
 
 /**
  * 生成 rules 相关的系统提醒信息
+ *
+ * 当 agentDataDir ≠ workingDir（双目录模式）时，注入两段上下文：
+ *   - agentMd：人设文件（agentDataDir/CLAUDE.md）
+ *   - claudeMd：项目上下文（workingDir/CLAUDE.md）
+ * 单目录模式下与原行为相同。
  */
 export function generateRulesReminders(): Anthropic.ContentBlockParam[] {
   const globalContent = readGlobalAgentFile()
-  const projectContent = readConfigFile()
+  const persona = readPersonaFile()
+  const project = readProjectConfigFile()
 
-  // 如果全局和项目配置都为空，直接返回空数组
-  if (!globalContent && !projectContent) {
+  const hasGlobal = !!globalContent
+  const hasPersona = !!persona.content
+  const hasProject = !!project.content
+
+  if (!hasGlobal && !hasPersona && !hasProject) {
     return []
+  }
+
+  let body = ''
+
+  if (hasGlobal) {
+    body += `Contents of ${getGlobalAgentMdPath()} (user's private global instructions for all projects): ${globalContent}\n\n`
+  }
+
+  if (hasPersona) {
+    body += `# agentMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\nContents of ${persona.filePath} (agent persona & long-term instructions): ${persona.content}\n\n`
+  }
+
+  if (hasProject) {
+    body += `# claudeMd\nContents of ${project.filePath} (current project context — follow if relevant to the task): ${project.content}\n\n`
   }
 
   const rulesReminder = `<system-reminder>
 As you answer the user's questions, you can use the following context:
-# agentMd
-Codebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.
-
-Contents of ${getGlobalAgentMdPath()} (user's private global instructions for all projects): ${globalContent}
-
-${projectContent}
+${body.trimEnd()}
 
       IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>`
 
