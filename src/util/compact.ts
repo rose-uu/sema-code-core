@@ -36,110 +36,74 @@ async function getCompressionModelContextLimit(): Promise<number> {
   }
 }
 
-const COMPRESSION_PROMPT = `Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
-This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing development work without losing context.
+const COMPRESSION_PROMPT = `Your task is to create a comprehensive summary of the conversation so far, preserving everything needed to continue seamlessly without losing context.
 
-Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+Before writing your summary, wrap your analysis in <analysis> tags. In your analysis:
 
-1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
-   - The user's explicit requests and intents
-   - Your approach to addressing the user's requests
-   - Key decisions, technical concepts and code patterns
-   - Specific details like:
-     - file names
-     - full code snippets
-     - function signatures
-     - file edits
-  - Errors that you ran into and how you fixed them
-  - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+1. Identify the nature of this conversation (e.g. general chat, coding/technical work, planning, Q&A, task execution, or a mix).
+2. Chronologically review each exchange, noting:
+   - What the user asked for or shared
+   - What you did or responded
+   - Key decisions, preferences, or information established
+   - Any feedback the user gave, especially corrections or changed direction
+3. Determine what information is essential for continuation vs. what can be omitted.
 
-2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+Your summary must include the following sections:
 
-Your summary should include the following sections:
+1. **Conversation Type & Context**
+   Brief characterization of what this conversation is about and its current stage.
 
-1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail
+2. **User's Goals & Requests**
+   All explicit requests and intentions, including any that are pending or partially addressed.
 
-2. Key Technical Concepts: List all important technical concepts, technologies, and frameworks discussed.
+3. **Key Information & Decisions**
+   Facts, preferences, decisions, and context established during the conversation that would be needed to continue. Adapt the depth to what matters:
+   - *For general chat*: personal context, user preferences, ongoing topics, commitments made
+   - *For technical/coding work*: architecture decisions, key designs, tools and technologies in use
+   - *For planning/tasks*: goals, constraints, progress made, next steps
 
-3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Pay special attention to the most recent messages and include full code snippets where applicable and include a summary of why this file read or edit is important.
+4. **What Was Done** *(omit if not applicable)*
+   Actions taken, results produced, or information provided. Be specific enough to avoid re-doing work.
+   - *For coding*: files examined or modified, code patterns used, errors encountered and fixed
+   - *For other tasks*: steps completed, outputs generated
 
-4. Errors and fixes: List all errors that you ran into, and how you fixed them. Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+5. **All User Messages**
+   List every user message verbatim (excluding tool results). Critical for preserving intent and tone.
 
-5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
-
-6. All user messages: List ALL user messages that are not tool results. These are critical for understanding the users' feedback and changing intent.
-
-7. Pending Tasks: Outline any pending tasks that you have explicitly been asked to work on.
-
-8. Current Work: Describe in detail precisely what was being worked on immediately before this summary request, paying special attention to the most recent messages from both user and assistant. Include file names and code snippets where applicable.
-
-9. Optional Next Step: List the next step that you will take that is related to the most recent work you were doing. IMPORTANT: ensure that this step is DIRECTLY in line with the user's most recent explicit requests, and the task you were working on immediately before this summary request. If your last task was concluded, then only list next steps if they are explicitly in line with the users request. Do not start on tangential requests or really old requests that were already completed without confirming with the user first.
-                       If there is a next step, include direct quotes from the most recent conversation showing exactly what task you were working on and where you left off. This should be verbatim to ensure there's no drift in task interpretation.
+6. **Pending & Next Steps**
+   What remains to be done, with direct quotes from the most recent exchange to avoid drift.
 
 Here's an example of how your output should be structured:
 
 <example>
 <analysis>
-[Your thought process, ensuring all points are covered thoroughly and accurately]
+[Nature of conversation, key moments, what matters for continuation]
 </analysis>
 
 <summary>
-1. Primary Request and Intent:
-   [Detailed description]
+1. Conversation Type & Context:
+   [e.g. "Personal assistant chat — user is planning a trip to Japan next month"]
 
-2. Key Technical Concepts:
-   - [Concept 1]
-   - [Concept 2]
+2. User's Goals & Requests:
+   [All explicit requests, pending items]
+
+3. Key Information & Decisions:
+   [Facts, preferences, decisions — depth adapted to conversation type]
+
+4. What Was Done:
+   [Actions, results — omit if nothing actionable was done]
+
+5. All User Messages:
+   - [verbatim message 1]
+   - [verbatim message 2]
    - [...]
 
-3. Files and Code Sections:
-   - [File Name 1]
-      - [Summary of why this file is important]
-      - [Summary of the changes made to this file, if any]
-      - [Important Code Snippet]
-   - [File Name 2]
-      - [Important Code Snippet]
-   - [...]
-
-4. Errors and fixes:
-    - [Detailed description of error 1]:
-      - [How you fixed the error]
-      - [User feedback on the error if any]
-    - [...]
-
-5. Problem Solving:
-   [Description of solved problems and ongoing troubleshooting]
-
-6. All user messages: 
-    - [Detailed non tool use user message]
-    - [...]
-
-7. Pending Tasks:
-   - [Task 1]
-   - [Task 2]
-   - [...]
-
-8. Current Work:
-   [Precise description of current work]
-
-9. Optional Next Step:
-   [Optional Next step to take]
-
+6. Pending & Next Steps:
+   [What's left, with direct quote if mid-task]
 </summary>
 </example>
 
-Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.
-
-There may be additional summarization instructions provided in the included context. If so, remember to follow these instructions when creating the above summary. Examples of instructions include:
-<example>
-## Compact Instructions
-When summarizing the conversation focus on typescript code changes and also remember the mistakes you made and how you fixed them.
-</example>
-
-<example>
-# Summary instructions
-When you are using compact - please focus on test output and code changes. Include file reads verbatim.
-</example>
+Please provide your summary following this structure. There may be additional summarization instructions in the context — follow them if present.
 Just compact without using any read tools. **No tool use during summary.**`
 
 /**
@@ -277,7 +241,13 @@ async function shouldAutoCompact(messages: Message[]): Promise<boolean> {
   const tokens = countTokens(messages);
   const inputTokenCount = tokens.inputTokens;
 
-  const { isAboveAutoCompactThreshold } = await calculateThresholds(inputTokenCount)
+  // 补偿下一次 API 调用的额外开销（blind spot）：
+  // countTokens 读取的是上一次 API 响应的 usage，不含即将追加的
+  // 新用户消息 + 注入的 reminders（rules/todos 等），估算约 8000 tokens
+  const NEXT_CALL_OVERHEAD_BUFFER = 8000
+  const adjustedTokenCount = inputTokenCount + NEXT_CALL_OVERHEAD_BUFFER
+
+  const { isAboveAutoCompactThreshold } = await calculateThresholds(adjustedTokenCount)
 
   return isAboveAutoCompactThreshold
 }
@@ -445,13 +415,14 @@ async function executeAutoCompact(
     [
       {
         type: 'text',
-        text: 'You are a helpful AI assistant tasked with summarizing coding conversations.'
+        text: 'You are a helpful AI assistant. Your task is to summarize a conversation accurately and concisely, preserving the context needed to continue it.'
       }
     ],
     abortController.signal,
     tools,
     'main',
-    true // 禁用流式事件
+    true, // 禁用流式事件
+    true, // suppressErrorEvent: compact 内部失败不触发 session:error，由 truncation fallback 接管
   )
 
   // 解析 summary 结果，兼容 Anthropic 和 OpenAI 两种格式

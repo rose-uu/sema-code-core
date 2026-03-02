@@ -11,6 +11,7 @@ import { logLLMRequest } from '../../../util/logLLM'
 import { logDebug } from '../../../util/log'
 import { useMaxCompletionTokens } from '../../../util/adapter'
 import { emitChunkEvent, getChunkEventBus } from './util'
+import { ContextLengthError } from '../../../types/errors'
 
 // openai 不要温度了，部分模型开了think只能为1，不开think只能为0.6，干脆不加了
 
@@ -105,6 +106,14 @@ async function streamChat(
     if (signal?.aborted) {
       // 中断时不抛出，返回已累积的部分内容
     } else {
+      // OpenAI API context 超限：HTTP 400 + code=context_length_exceeded 或 message 含 "maximum context length"
+      if (
+        error instanceof Error &&
+        (error as any).status === 400 &&
+        ((error as any).code === 'context_length_exceeded' || error.message.includes('maximum context length'))
+      ) {
+        throw new ContextLengthError(error.message)
+      }
       throw error;
     }
   }

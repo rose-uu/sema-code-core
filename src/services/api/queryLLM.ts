@@ -9,6 +9,7 @@ import { getEventBus } from '../../events/EventSystem'
 import { SessionErrorData } from '../../events/types'
 import { tryGetCachedResponse, setCachedResponse, getCacheSize } from './cache'
 import { Tool } from '../../tools/base/Tool'
+import { ContextLengthError } from '../../types/errors'
 
 // 导入适配层
 import { queryOpenAI } from './adapt/openai'
@@ -27,7 +28,8 @@ export async function queryLLM(
   signal: AbortSignal,
   tools: Tool[],
   modelPointer: ModelPointerType = 'main',
-  disableChunkEvents: boolean = false
+  disableChunkEvents: boolean = false,
+  suppressErrorEvent: boolean = false
 ): Promise<AssistantMessage> {
   const modelProfile = getModelManager().getModel(modelPointer)
 
@@ -90,7 +92,7 @@ export async function queryLLM(
 
     return result
   } catch (error) {
-    if (error instanceof Error && error.name !== 'InterruptedException') {
+    if (error instanceof Error && error.name !== 'InterruptedException' && !suppressErrorEvent) {
       emitSessionError(error)
     }
     throw error
@@ -115,33 +117,36 @@ function emitSessionError(error: any, type: SessionErrorData['type'] = 'api_erro
       return // 用户取消的情况不需要触发错误事件
     }
 
-    // 检测 API request failed (xxx) 格式的错误
-    const apiErrorMatch = error.message.match(/API request failed \((\d{3})\)/)
-    if (apiErrorMatch) {
-      const statusCode = apiErrorMatch[1]
-      errorCode = `API_ERROR_${statusCode}`
-      errorMessage = error.message
-      type = 'api_error'
-    } else if (error.message.includes('JSON')) {
-      errorCode = 'API_RESPONSE_ERROR'
-      errorMessage = 'API响应格式错误，无法解析数据'
-      type = 'api_error'
-    } else if (error.message.includes('fetch') || error.message.includes('network')) {
-      errorCode = 'NETWORK_ERROR'
-      errorMessage = '网络连接错误，请检查网络连接'
-      type = 'api_error'
-    } else if (error.message.includes('401') || error.message.includes('auth')) {
-      errorCode = 'AUTH_ERROR'
-      errorMessage = 'API认证失败，请检查API密钥'
-      type = 'api_error'
-    } else if (error.message.includes('429') || error.message.includes('rate limit')) {
-      errorCode = 'RATE_LIMIT'
-      errorMessage = 'API调用频率超限，请稍后重试'
-      type = 'api_error'
-    } else if (error.message.includes('context') || error.message.includes('token')) {
+    // adapter 层已归一化的 context 超限错误，直接 instanceof 判断，无需字符串猜测
+    if (error instanceof ContextLengthError) {
       errorCode = 'CONTEXT_TOO_LONG'
       errorMessage = '上下文长度超出限制'
       type = 'context_length_exceeded'
+    } else {
+      // 字符串匹配兜底（适用于未被 adapter 归一化的错误）
+      const apiErrorMatch = error.message.match(/API request failed \((\d{3})\)/)
+      if (apiErrorMatch) {
+        const statusCode = apiErrorMatch[1]
+        errorCode = `API_ERROR_${statusCode}`
+        errorMessage = error.message
+        type = 'api_error'
+      } else if (error.message.includes('JSON')) {
+        errorCode = 'API_RESPONSE_ERROR'
+        errorMessage = 'API响应格式错误，无法解析数据'
+        type = 'api_error'
+      } else if (error.message.includes('fetch') || error.message.includes('network')) {
+        errorCode = 'NETWORK_ERROR'
+        errorMessage = '网络连接错误，请检查网络连接'
+        type = 'api_error'
+      } else if (error.message.includes('401') || error.message.includes('auth')) {
+        errorCode = 'AUTH_ERROR'
+        errorMessage = 'API认证失败，请检查API密钥'
+        type = 'api_error'
+      } else if (error.message.includes('429') || error.message.includes('rate limit')) {
+        errorCode = 'RATE_LIMIT'
+        errorMessage = 'API调用频率超限，请稍后重试'
+        type = 'api_error'
+      }
     }
   }
 

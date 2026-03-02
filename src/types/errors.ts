@@ -1,4 +1,20 @@
 /**
+ * 上下文长度超限异常
+ * 由各 adapter 在识别到 provider 返回的 context length 错误时抛出，
+ * 上层通过 instanceof 判断，不依赖字符串匹配。
+ */
+export class ContextLengthError extends Error {
+  constructor(message = 'Context length exceeded') {
+    super(message)
+    this.name = 'ContextLengthError'
+  }
+}
+
+export function isContextLengthError(error: unknown): error is ContextLengthError {
+  return error instanceof ContextLengthError
+}
+
+/**
  * 用户中断操作异常
  * 当用户主动中断操作时抛出此异常，区别于系统错误
  */

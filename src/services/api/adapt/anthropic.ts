@@ -7,6 +7,7 @@ import { buildTools } from '../../../tools/base/tools'
 import { logLLMRequest } from '../../../util/logLLM'
 import { logDebug } from '../../../util/log'
 import { MAIN_QUERY_TEMPERATURE, emitChunkEvent, getChunkEventBus } from './util'
+import { ContextLengthError } from '../../../types/errors'
 
 export { MAIN_QUERY_TEMPERATURE }
 
@@ -114,6 +115,14 @@ async function streamChat(
     if (signal?.aborted) {
       // 中断时不抛出，返回已累积的部分内容
     } else {
+      // Anthropic API context 超限：HTTP 400 + message 含 "prompt is too long" 或 "prompt_too_long"
+      if (
+        error instanceof Error &&
+        (error as any).status === 400 &&
+        (error.message.includes('prompt is too long') || error.message.includes('prompt_too_long'))
+      ) {
+        throw new ContextLengthError(error.message)
+      }
       throw error;
     }
   }

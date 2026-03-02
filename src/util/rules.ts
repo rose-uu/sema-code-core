@@ -3,8 +3,6 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { getOriginalCwd, getAgentDataDir } from './cwd'
 import { PROJECT_FILE } from '../constants/product'
-import { getGlobalAgentMdPath } from '../util/savePath'
-import { getConfManager } from '../manager/ConfManager'
 
 /**
  * 读取 agentDataDir 下的人设文件（SOUL.md 优先，次之 AGENT.md / CLAUDE.md）
@@ -65,32 +63,6 @@ function readProjectConfigFile(): { content: string; filePath: string } {
 }
 
 /**
- * 读取全局~/.sema/AGENT.md 加上customRules
- */
-function readGlobalAgentFile(): string {
-  try {
-    const agentPath = getGlobalAgentMdPath()
-    let content = ''
-
-    if (fs.existsSync(agentPath)) {
-      content = fs.readFileSync(agentPath, 'utf8')
-    }
-
-    // 尝试从配置管理器中获取自定义的 customRules
-    const configManager = getConfManager()
-    const coreConfig = configManager.getCoreConfig()
-
-    if (coreConfig?.customRules) {
-      content = content ? `${content}\n\n${coreConfig.customRules}` : coreConfig.customRules
-    }
-
-    return content
-  } catch (error) {
-    return ''
-  }
-}
-
-/**
  * 生成 rules 相关的系统提醒信息
  *
  * 当 agentDataDir ≠ workingDir（双目录模式）时，注入两段上下文：
@@ -99,23 +71,17 @@ function readGlobalAgentFile(): string {
  * 单目录模式下与原行为相同。
  */
 export function generateRulesReminders(): Anthropic.ContentBlockParam[] {
-  const globalContent = readGlobalAgentFile()
   const persona = readPersonaFile()
   const project = readProjectConfigFile()
 
-  const hasGlobal = !!globalContent
   const hasPersona = !!persona.content
   const hasProject = !!project.content
 
-  if (!hasGlobal && !hasPersona && !hasProject) {
+  if (!hasPersona && !hasProject) {
     return []
   }
 
   let body = ''
-
-  if (hasGlobal) {
-    body += `Contents of ${getGlobalAgentMdPath()} (user's private global instructions for all projects): ${globalContent}\n\n`
-  }
 
   if (hasPersona) {
     body += `# agentMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\nContents of ${persona.filePath} (agent persona & long-term instructions): ${persona.content}\n\n`
